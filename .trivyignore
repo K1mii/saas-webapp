@@ -1,0 +1,2 @@
+# picomatch CVE in npm internals - fix available in 4.0.4 but not yet bundled in npm
+CVE-2026-33671

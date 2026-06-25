@@ -1,0 +1,61 @@
+name: Production CI/CD Pipeline
+
+on:
+  workflow_dispatch: {}
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: <your-account-id>
+  ECR_REPOSITORY: saas-app
+  IMAGE_TAG: ${{ github.sha }}
+  LAUNCH_TEMPLATE_ID: lt-<your-launch-template-id>
+  ASG_NAME: prod-asg
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+
+  build-and-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build Docker Image
+        run: |
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG ./app
+
+      - name: Scan Image (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          trivyignores: .trivyignore
+
+  push:
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<your-account-id>:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push Image
+        run: |
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG ./app
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG \
+          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push \
+          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
